@@ -429,7 +429,7 @@ loadSessionWithOptions recorder SessionLoadingOptions{..} dir = do
   runningCradle <- newVar dummyAs :: IO (Var (Async (IdeResult HscEnvEq,[FilePath])))
 
   return $ do
-    extras@ShakeExtras{restartShakeSession, ideNc, knownTargetsVar, lspEnv
+    extras@ShakeExtras{restartShakeSession, ideNc, knownTargetsVar, lspEnv, vfsVar
                       } <- getShakeExtras
     let invalidateShakeCache :: IO ()
         invalidateShakeCache = do
@@ -581,7 +581,9 @@ loadSessionWithOptions recorder SessionLoadingOptions{..} dir = do
 
           -- Invalidate all the existing GhcSession build nodes by restarting the Shake session
           invalidateShakeCache
-          restartShakeSession "new component" []
+
+          -- The VFS doesn't change on cradle edits, re-use the old one.
+          restartShakeSession VFSUnmodified "new component" []
 
           -- Typecheck all files in the project on startup
           checkProject <- getCheckProject
