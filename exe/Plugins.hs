@@ -75,6 +75,10 @@ import qualified Ide.Plugin.Splice                 as Splice
 import qualified Ide.Plugin.AlternateNumberFormat  as AlternateNumberFormat
 #endif
 
+#if sloorushHehe
+import qualified Ide.Plugin.SloorushHehe  as SloorushHehe
+#endif
+
 #if selectionRange
 import           Ide.Plugin.SelectionRange         as SelectionRange
 #endif
@@ -188,6 +192,9 @@ idePlugins recorder includeExamples = pluginDescToIdePlugins allPlugins
 #endif
 #if alternateNumberFormat
       AlternateNumberFormat.descriptor pluginRecorder :
+#endif
+#if sloorushHehe
+      SloorushHehe.descriptor "sloooooFrompluginhs" :
 #endif
 #if selectionRange
       SelectionRange.descriptor "selectionRange" :
