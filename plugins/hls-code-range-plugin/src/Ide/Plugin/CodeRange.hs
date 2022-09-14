@@ -10,6 +10,7 @@ module Ide.Plugin.CodeRange (
     , findPosition
     , findFoldingRanges
     , createFoldingRange
+    , findDocumentLinks
     ) where
 
 import           Control.Monad.Except                 (ExceptT (ExceptT),
@@ -17,8 +18,11 @@ import           Control.Monad.Except                 (ExceptT (ExceptT),
 import           Control.Monad.IO.Class               (liftIO)
 import           Control.Monad.Trans.Maybe            (MaybeT (MaybeT),
                                                        maybeToExceptT)
+import           Data.Aeson                           (Value)
 import           Data.Either.Extra                    (maybeToEither)
-import           Data.Maybe                           (fromMaybe)
+import           Data.Maybe
+import           Data.Text                            (Text)
+
 import           Data.Vector                          (Vector)
 import qualified Data.Vector                          as V
 import           Development.IDE                      (IdeAction,
@@ -30,9 +34,11 @@ import           Development.IDE                      (IdeAction,
                                                        toNormalizedFilePath',
                                                        uriToFilePath')
 import           Development.IDE.Core.Actions         (useE)
+import           Development.IDE.Core.FileStore       (getFileContents)
 import           Development.IDE.Core.PositionMapping (PositionMapping,
                                                        fromCurrentPosition,
                                                        toCurrentRange)
+import           Development.IDE.Core.Rules           (runAction)
 import           Development.IDE.Types.Logger         (Pretty (..))
 import           Ide.Plugin.CodeRange.Rules           (CodeRange (..),
                                                        GetCodeRange (..),
@@ -45,24 +51,29 @@ import           Ide.Types                            (PluginDescriptor (pluginH
                                                        defaultPluginDescriptor,
                                                        mkPluginHandler)
 import           Language.LSP.Server                  (LspM)
-import           Language.LSP.Types                   (FoldingRange (..),
+import           Language.LSP.Types                   (DocumentLink (DocumentLink),
+                                                       DocumentLinkParams (..),
+                                                       FoldingRange (..),
                                                        FoldingRangeParams (..),
                                                        List (List),
                                                        NormalizedFilePath,
                                                        Position (..),
                                                        Range (_start),
                                                        ResponseError,
-                                                       SMethod (STextDocumentFoldingRange, STextDocumentSelectionRange),
+                                                       SMethod (STextDocumentDocumentLink, STextDocumentFoldingRange, STextDocumentSelectionRange),
                                                        SelectionRange (..),
                                                        SelectionRangeParams (..),
                                                        TextDocumentIdentifier (TextDocumentIdentifier),
                                                        Uri)
 import           Prelude                              hiding (log, span)
+import           Text.Regex.TDFA                      (AllTextMatches (getAllTextMatches),
+                                                       (=~))
 
 descriptor :: Recorder (WithPriority Log) -> PluginId -> PluginDescriptor IdeState
 descriptor recorder plId = (defaultPluginDescriptor plId)
     { pluginHandlers = mkPluginHandler STextDocumentSelectionRange selectionRangeHandler
     <> mkPluginHandler STextDocumentFoldingRange foldingRangeHandler
+    <> mkPluginHandler STextDocumentDocumentLink documentLinkHandler
     , pluginRules = codeRangeRule (cmapWithPrio LogRules recorder)
     }
 
@@ -71,6 +82,18 @@ data Log = LogRules Rules.Log
 instance Pretty Log where
     pretty log = case log of
         LogRules codeRangeLog -> pretty codeRangeLog
+
+documentLinkHandler :: IdeState -> PluginId -> DocumentLinkParams -> LspM c (Either ResponseError (List DocumentLink))
+documentLinkHandler ide _ DocumentLinkParams{..} = do
+    pluginResponse $ do
+        filePath <- ExceptT . pure . maybeToEither "fail to convert uri to file path" $
+                toNormalizedFilePath' <$> uriToFilePath' uri
+        documentLinks <- ExceptT . liftIO . runIdeAction "DocumentLinks" (shakeExtras ide) . runExceptT $
+            getDocumentLinks filePath ide
+        pure . List $ documentLinks
+    where
+        uri :: Uri
+        TextDocumentIdentifier uri = _textDocument
 
 foldingRangeHandler :: IdeState -> PluginId -> FoldingRangeParams -> LspM c (Either ResponseError (List FoldingRange))
 foldingRangeHandler ide _ FoldingRangeParams{..} = do
@@ -83,6 +106,14 @@ foldingRangeHandler ide _ FoldingRangeParams{..} = do
     where
         uri :: Uri
         TextDocumentIdentifier uri = _textDocument
+
+getDocumentLinks :: NormalizedFilePath -> IdeState -> ExceptT String IdeAction [DocumentLink]
+getDocumentLinks file state = do
+    (_, fileContents) <- liftIO $ runAction "GADT.GetFileContents" state $ getFileContents file
+
+    let documentLinks = findDocumentLinks fileContents
+
+    maybeToExceptT "Fail to generate Document Links" (MaybeT . pure $ Just $ catMaybes documentLinks)
 
 getFoldingRanges :: NormalizedFilePath -> ExceptT String IdeAction [FoldingRange]
 getFoldingRanges file = do
@@ -159,6 +190,32 @@ findFoldingRanges r@(CodeRange _ children _) =
 
       frChildren :: [FoldingRange] = concat $ V.toList $ fmap findFoldingRanges children
    in frRoot ++ frChildren
+
+findDocumentLinks :: Maybe Text -> [Maybe DocumentLink]
+findDocumentLinks fc = case fc of
+    Just fc -> urlToDocumentLink $ parseTextToUrls fc
+    Nothing -> []
+
+urlRegEx :: String
+urlRegEx = "(https?:\\/\\/(?:www\\.|(?!www))[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\\.[^\\s]{2,}|www\\.[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\\.[^\\s]{2,}|https?:\\/\\/(?:www\\.|(?!www))[a-zA-Z0-9]+\\.[^\\s]{2,}|www\\.[a-zA-Z0-9]+\\.[^\\s]{2,})"
+
+parseTextToUrls :: Text -> [Text]
+parseTextToUrls fc = getAllTextMatches(fc =~ urlRegEx) :: [Text]
+
+
+urlToDocumentLink :: [Text] -> [Maybe DocumentLink]
+urlToDocumentLink l = do
+    let docLink :: Maybe DocumentLink = makeDocumentLink (Range (Position 0 0) (Position 0 10)) Nothing (Just "aaya") Nothing
+
+    case docLink of
+        Just _  -> [docLink]
+        Nothing -> [Just (DocumentLink (Range (Position 0 0) (Position 0 10)) Nothing (Just "noob ni aaya") Nothing)]
+
+makeDocumentLink :: Range -> Maybe Uri -> Maybe Text -> Maybe Value -> Maybe DocumentLink
+makeDocumentLink r uri tooltip xdata = do
+    case uri of
+        Just _  -> Just (DocumentLink r uri tooltip xdata)
+        Nothing -> Nothing
 
 -- | Parses code range to folding range
 createFoldingRange :: CodeRange -> Maybe FoldingRange

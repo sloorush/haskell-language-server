@@ -42,6 +42,7 @@ library
     , lsp
     , mtl
     , semigroupoids
+    , regex-tdfa
     , text
     , transformers
     , vector

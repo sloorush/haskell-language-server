@@ -1,7 +1,9 @@
-{-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE OverloadedLists   #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Ide.Plugin.CodeRangeTest (testTree) where
 
+import           Data.Text
 import qualified Data.Vector                as V
 import           Ide.Plugin.CodeRange
 import           Ide.Plugin.CodeRange.Rules
@@ -111,5 +113,22 @@ testTree =
             testCase "Test Same Start Line" $ check
                 (mkCodeRange (Position 1 1) (Position 1 10) [] CodeKindRegion)
                 Nothing
+        ],
+
+        testGroup "findDocumentLinks" $
+        let check :: Maybe Text -> [Maybe DocumentLink] -> Assertion
+            check t = (findDocumentLinks t @?=)
+
+            mkCodeRange :: Position -> Position -> V.Vector CodeRange -> CodeRangeKind -> CodeRange
+            mkCodeRange start end children crk = CodeRange (Range start end) children crk
+        in [
+            -- General test
+            testCase "Test General Code Block" $ check
+                (Just "https://google.com/")
+                [Just (DocumentLink (Range (Position 0 0) (Position 0 10)) Nothing (Just "jajajaja") Nothing)]
+            -- General test
+            -- testCase "Test Same Start Line" $ check
+            --     (mkCodeRange (Position 1 1) (Position 1 10) [] CodeKindRegion)
+            --     Nothing
         ]
     ]

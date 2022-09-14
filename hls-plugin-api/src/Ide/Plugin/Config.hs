@@ -111,6 +111,7 @@ data PluginConfig =
       , plcRenameOn         :: !Bool
       , plcSelectionRangeOn :: !Bool
       , plcFoldingRangeOn   :: !Bool
+      , plcDocumentLinkOn   :: !Bool
       , plcConfig           :: !A.Object
       } deriving (Show,Eq)
 
@@ -127,11 +128,12 @@ instance Default PluginConfig where
       , plcRenameOn         = True
       , plcSelectionRangeOn = True
       , plcFoldingRangeOn = True
+      , plcDocumentLinkOn = True
       , plcConfig           = mempty
       }
 
 instance A.ToJSON PluginConfig where
-    toJSON (PluginConfig g ch ca cl d h s c rn sr fr cfg) = r
+    toJSON (PluginConfig g ch ca cl d h s c rn sr fr dl cfg) = r
       where
         r = object [ "globalOn"         .= g
                    , "callHierarchyOn"  .= ch
@@ -144,6 +146,7 @@ instance A.ToJSON PluginConfig where
                    , "renameOn"         .= rn
                    , "selectionRangeOn" .= sr
                    , "foldingRangeOn"   .= fr
+                   , "documentLinkOn"   .= dl
                    , "config"           .= cfg
                    ]
 
@@ -160,6 +163,7 @@ instance A.FromJSON PluginConfig where
       <*> o .:? "renameOn"         .!= plcRenameOn      def
       <*> o .:? "selectionRangeOn" .!= plcSelectionRangeOn def
       <*> o .:? "foldingRangeOn" .!= plcFoldingRangeOn def
+      <*> o .:? "documentLinkOn" .!= plcDocumentLinkOn def
       <*> o .:? "config"           .!= plcConfig        def
 
 -- ---------------------------------------------------------------------
